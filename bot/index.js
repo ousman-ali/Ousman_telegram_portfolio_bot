@@ -32,6 +32,119 @@ if (!usePolling) {
 
 console.log("🤖 Bot initialized");
 
+bot
+  .setMyCommands([
+    { command: "start", description: "Start Menu" },
+    { command: "projects", description: "Show Projects" },
+    { command: "contact", description: "Contact Me" },
+  ])
+  .then(() => {
+    console.log("📌 Bot commands registered");
+  })
+  .catch((err) => {
+    console.error("Failed to set commands:", err);
+  });
+
+bot.onText(/\/start/, async (msg) => {
+  const chatId = msg.chat.id;
+
+  await bot.sendMessage(chatId, "👋 Welcome! Choose an option below:", {
+    reply_markup: {
+      inline_keyboard: [[{ text: "🚀 Start", callback_data: "start_menu" }]],
+    },
+  });
+});
+
+bot.on("callback_query", async (query) => {
+  const chatId = query.message.chat.id;
+  const action = query.data;
+
+  if (action === "start_menu") {
+    await bot.editMessageText("✨ Choose an option:", {
+      chat_id: chatId,
+      message_id: query.message.message_id,
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "📂 Projects", callback_data: "show_projects" }],
+          [{ text: "✉ Contact", callback_data: "show_contact" }],
+        ],
+      },
+    });
+
+    await bot.answerCallbackQuery(query.id);
+    return;
+  }
+
+  if (action === "show_projects") {
+    await bot.answerCallbackQuery(query.id);
+
+    // Directly run the projects logic (no /projects command)
+    bot.sendMessage(chatId, "🔎 Fetching projects...");
+
+    try {
+      const res = await axios.get(`${apiBase.replace(/\/$/, "")}/api/projects`);
+      const projects = res.data;
+
+      if (!projects.length) {
+        await bot.sendMessage(chatId, "No projects found.");
+        return;
+      }
+
+      for (const project of projects) {
+        const title = project.title || "Untitled Project";
+        const description = project.description || "";
+        const link = project.link ? `🔗 ${project.link}` : "";
+        const tech =
+          project.techStack && project.techStack.length
+            ? `🛠️ Tech: ${project.techStack.join(", ")}`
+            : "";
+
+        const caption = `*${escapeMarkdown(title)}*\n\n${escapeMarkdown(
+          description
+        )}\n\n${escapeMarkdown(tech)}\n${escapeMarkdown(link)}`;
+
+        if (project.imageUrl) {
+          try {
+            const response = await axios.get(project.imageUrl, {
+              responseType: "arraybuffer",
+            });
+            const buffer = Buffer.from(response.data, "binary");
+
+            await bot.sendPhoto(chatId, buffer, {
+              caption,
+              parse_mode: "MarkdownV2",
+            });
+          } catch (photoErr) {
+            console.error("Failed to send image:", photoErr.message);
+            await bot.sendMessage(chatId, caption, {
+              parse_mode: "MarkdownV2",
+            });
+          }
+        } else {
+          await bot.sendMessage(chatId, caption, { parse_mode: "MarkdownV2" });
+        }
+      }
+    } catch (err) {
+      console.error("Project fetch error:", err);
+      await bot.sendMessage(chatId, "⚠️ Failed to fetch projects.");
+    }
+
+    return;
+  }
+
+  if (action === "show_contact") {
+    await bot.answerCallbackQuery(query.id);
+
+    // Start contact flow directly
+    userStates[chatId] = { step: "name" };
+    await bot.sendMessage(chatId, "🧑 What's your *name*?", {
+      parse_mode: "Markdown",
+    });
+
+    return;
+  }
+});
+
 // ---------- helpers ----------
 function escapeMarkdown(text = "") {
   // minimal MarkdownV2 escaping for Telegram (used if parse_mode is MarkdownV2)
